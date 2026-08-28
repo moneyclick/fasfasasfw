@@ -1,15 +1,50 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <CoreTelephony/CTCarrier.h>
 
 static NSString *const kPrefVerified = @"sa1zy_fake_verified";
 static NSString *const kPrefFollowers = @"sa1zy_fake_followers";
 static NSString *const kPrefLikes = @"sa1zy_fake_likes";
 static NSString *const kPrefNickname = @"sa1zy_fake_nickname";
 static NSString *const kPrefUsername = @"sa1zy_fake_username";
+static NSString *const kPrefMockLogin = @"sa1zy_mock_login";
 
 // =========================================================================
-// 0. FIX 1: Устранение краша iOS 16 (BoundingPath)
+// 1. FIX BUNDLE ID (Устраняет блокировку Sideloadly)
+// =========================================================================
+// Sideloadly меняет Bundle ID на com.zhiliaoapp.musically.XXXXX, из-за чего
+// сервер TikTok мгновенно отклоняет вход ошибкой "Слишком много попыток".
+%hook NSBundle
+- (NSString *)bundleIdentifier {
+    NSString *orig = %orig;
+    if ([orig containsString:@"com.zhiliaoapp.musically"]) {
+        return @"com.zhiliaoapp.musically";
+    }
+    return orig;
+}
+%end
+
+// =========================================================================
+// 2. FIX СИМ-КАРТЫ (Спуфинг оператора связи на США)
+// =========================================================================
+%hook CTCarrier
+- (NSString *)isoCountryCode {
+    return @"us";
+}
+- (NSString *)mobileCountryCode {
+    return @"310";
+}
+- (NSString *)mobileNetworkCode {
+    return @"260";
+}
+- (NSString *)carrierName {
+    return @"T-Mobile";
+}
+%end
+
+// =========================================================================
+// 3. FIX КРАША iOS 16 (BoundingPath)
 // =========================================================================
 @interface _UIScreenBoundingPathUtilities : NSObject
 + (id)boundingPathUtilitiesForScreen:(id)screen;
@@ -30,184 +65,57 @@ static NSString *const kPrefUsername = @"sa1zy_fake_username";
 %end
 
 // =========================================================================
-// 1. FIX 2: Обход экрана даты рождения и ошибки "Недопустимые параметры"
+// 4. FIX ДАТЫ РОЖДЕНИЯ (Отключение AgeGate / "Недопустимые параметры")
 // =========================================================================
-// Полностью отключаем застревание на экране AgeGate / Birthday
 %hook PNSAgeGateService
-- (BOOL)needAgeGate {
-    return NO;
-}
-- (BOOL)_needAgeGate {
-    return NO;
-}
-+ (BOOL)needAgeGate {
-    return NO;
-}
-- (BOOL)didRunNUJAgeGate {
-    return YES;
-}
+- (BOOL)needAgeGate { return NO; }
+- (BOOL)_needAgeGate { return NO; }
++ (BOOL)needAgeGate { return NO; }
+- (BOOL)didRunNUJAgeGate { return YES; }
 %end
 
-// Пропускаем проверку возраста при авторизации / регистрации
 %hook TTKUserAgeGateInfoService
-- (BOOL)didRunAgeGate {
-    return YES;
-}
-- (BOOL)isPassedAgeGate {
-    return YES;
-}
+- (BOOL)didRunAgeGate { return YES; }
+- (BOOL)isPassedAgeGate { return YES; }
 %end
 
 // =========================================================================
-// 2. Меню настроек твика (2 тапа двумя пальцами или встряхивание телефона)
+// 5. ЛОКАЛЬНЫЙ ВХОД В АККАУНТ (MOCK LOGIN БЕЗ СЕРВЕРА)
 // =========================================================================
-void ShowSa1zyMenu(UIViewController *presenter);
-
-%hook UIViewController
-- (void)viewDidAppear:(BOOL)animated {
-    %orig;
-    NSString *cls = NSStringFromClass([self class]);
-    if ([cls containsString:@"Profile"] || [cls containsString:@"Feed"] || [cls containsString:@"Main"] || [cls containsString:@"Root"]) {
-        BOOL exists = NO;
-        for (UIGestureRecognizer *g in self.view.gestureRecognizers) {
-            if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
-                UITapGestureRecognizer *tg = (UITapGestureRecognizer *)g;
-                if (tg.numberOfTouchesRequired == 2 && tg.numberOfTapsRequired == 2) {
-                    exists = YES;
-                    break;
-                }
-            }
-        }
-        if (!exists) {
-            UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(sa1zy_openMenu)];
-            tap.numberOfTouchesRequired = 2;
-            tap.numberOfTapsRequired = 2;
-            tap.cancelsTouchesInView = NO;
-            [self.view addGestureRecognizer:tap];
-        }
+// Если сервер не пускает, включаем статус "Залогинен" прямо на клиенте!
+%hook AWEAccountUtils
++ (BOOL)isLogin {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefMockLogin]) {
+        return YES;
     }
-}
-
-%new
-- (void)sa1zy_openMenu {
-    ShowSa1zyMenu(self);
+    return %orig;
 }
 %end
 
-%hook UIWindow
-- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event {
-    %orig;
-    if (motion == UIEventSubtypeMotionShake) {
-        UIViewController *rootVC = self.rootViewController;
-        while (rootVC.presentedViewController) {
-            rootVC = rootVC.presentedViewController;
-        }
-        ShowSa1zyMenu(rootVC);
+%hook AWEUserService
+- (BOOL)isLogin {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefMockLogin]) {
+        return YES;
     }
-}
-%end
-
-void ShowSa1zyMenu(UIViewController *presenter) {
-    if (!presenter) return;
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    BOOL isVerified = [defaults boolForKey:kPrefVerified];
-    NSInteger followers = [defaults integerForKey:kPrefFollowers];
-    NSInteger likes = [defaults integerForKey:kPrefLikes];
-    NSString *nick = [defaults stringForKey:kPrefNickname] ?: @"";
-    NSString *user = [defaults stringForKey:kPrefUsername] ?: @"";
-
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Sa1zy TikTok Mod"
-                                                                   message:@"Визуальные настройки профиля"
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *t) { t.placeholder = @"Имя (Никнейм)"; t.text = nick; }];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *t) { t.placeholder = @"Юзернейм (@handle)"; t.text = user; }];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *t) {
-        t.placeholder = @"Подписчики (число)";
-        t.keyboardType = UIKeyboardTypeNumberPad;
-        t.text = followers > 0 ? [NSString stringWithFormat:@"%ld", (long)followers] : @"";
-    }];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *t) {
-        t.placeholder = @"Лайки (число)";
-        t.keyboardType = UIKeyboardTypeNumberPad;
-        t.text = likes > 0 ? [NSString stringWithFormat:@"%ld", (long)likes] : @"";
-    }];
-
-    NSString *toggleTitle = isVerified ? @"[✓] Галочка: ВКЛЮЧЕНА (Нажми для выкл)" : @"[ ] Галочка: ВЫКЛЮЧЕНА (Нажми для вкл)";
-    [alert addAction:[UIAlertAction actionWithTitle:toggleTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        [defaults setBool:!isVerified forKey:kPrefVerified];
-        [defaults synchronize];
-        ShowSa1zyMenu(presenter);
-    }]];
-
-    [alert addAction:[UIAlertAction actionWithTitle:@"Сохранить" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        @try {
-            [defaults setObject:alert.textFields[0].text forKey:kPrefNickname];
-            [defaults setObject:alert.textFields[1].text forKey:kPrefUsername];
-            [defaults setInteger:[alert.textFields[2].text integerValue] forKey:kPrefFollowers];
-            [defaults setInteger:[alert.textFields[3].text integerValue] forKey:kPrefLikes];
-            [defaults synchronize];
-
-            UIAlertController *done = [UIAlertController alertControllerWithTitle:@"Сохранено!"
-                                                                          message:@"Перейди в свой профиль для обновления."
-                                                                   preferredStyle:UIAlertControllerStyleAlert];
-            [done addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
-            [presenter presentViewController:done animated:YES completion:nil];
-        } @catch (NSException *e) {}
-    }]];
-
-    [alert addAction:[UIAlertAction actionWithTitle:@"Отмена" style:UIAlertActionStyleCancel handler:nil]];
-    [presenter presentViewController:alert animated:YES completion:nil];
-}
-
-// =========================================================================
-// 3. Хук галочки в лейбле имени
-// =========================================================================
-@interface AWEUserNameLabel : UILabel
-- (void)addVerifiedIcon:(BOOL)arg1;
-@end
-
-%hook AWEUserNameLabel
-- (void)layoutSubviews {
-    %orig;
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) {
-        if ([self respondsToSelector:@selector(addVerifiedIcon:)]) {
-            [self addVerifiedIcon:YES];
-        }
-    }
+    return %orig;
 }
 %end
 
 // =========================================================================
-// 4. Хук компонентов профиля
-// =========================================================================
-@interface TTKProfileBaseComponentModel : NSObject
-@property (nonatomic, copy) NSString *componentID;
-@end
-
-%hook TTKProfileBaseComponentModel
-- (NSDictionary *)bizData {
-    NSDictionary *orig = %orig;
-    if (!orig) return orig;
-    
-    NSInteger followers = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
-    if (followers > 0 && [self.componentID isEqualToString:@"relation_info_follower"]) {
-        NSMutableDictionary *mod = [orig mutableCopy];
-        mod[@"follower_count"] = @(followers);
-        return [mod copy];
-    }
-    return orig;
-}
-%end
-
-// =========================================================================
-// 5. Хук AWEUserModel (галочка, подписчики, лайки, ник)
+// 6. ХУК МОДЕЛИ ПОЛЬЗОВАТЕЛЯ (AWEUserModel)
 // =========================================================================
 @interface AWEUserModel : NSObject
 - (BOOL)isMe;
 @end
 
 %hook AWEUserModel
+- (BOOL)isMe {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefMockLogin]) {
+        return YES;
+    }
+    return %orig;
+}
+
 - (BOOL)isVerified {
     if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return YES;
     return %orig;
@@ -225,10 +133,6 @@ void ShowSa1zyMenu(UIViewController *presenter) {
     return %orig;
 }
 - (NSString *)customVerify {
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return @"Verified Account";
-    return %orig;
-}
-- (NSString *)customVerifyInfo {
     if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return @"Verified Account";
     return %orig;
 }
@@ -287,3 +191,113 @@ void ShowSa1zyMenu(UIViewController *presenter) {
     return %orig;
 }
 %end
+
+// =========================================================================
+// 7. МЕНЮ НАСТРОЕК ТВRear (Shake или двойной тап 2 пальцами)
+// =========================================================================
+void ShowSa1zyMenu(UIViewController *presenter);
+
+%hook UIViewController
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    NSString *cls = NSStringFromClass([self class]);
+    if ([cls containsString:@"Profile"] || [cls containsString:@"Feed"] || [cls containsString:@"Main"] || [cls containsString:@"Root"]) {
+        BOOL exists = NO;
+        for (UIGestureRecognizer *g in self.view.gestureRecognizers) {
+            if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
+                UITapGestureRecognizer *tg = (UITapGestureRecognizer *)g;
+                if (tg.numberOfTouchesRequired == 2 && tg.numberOfTapsRequired == 2) {
+                    exists = YES;
+                    break;
+                }
+            }
+        }
+        if (!exists) {
+            UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(sa1zy_openMenu)];
+            tap.numberOfTouchesRequired = 2;
+            tap.numberOfTapsRequired = 2;
+            tap.cancelsTouchesInView = NO;
+            [self.view addGestureRecognizer:tap];
+        }
+    }
+}
+
+%new
+- (void)sa1zy_openMenu {
+    ShowSa1zyMenu(self);
+}
+%end
+
+%hook UIWindow
+- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event {
+    %orig;
+    if (motion == UIEventSubtypeMotionShake) {
+        UIViewController *rootVC = self.rootViewController;
+        while (rootVC.presentedViewController) {
+            rootVC = rootVC.presentedViewController;
+        }
+        ShowSa1zyMenu(rootVC);
+    }
+}
+%end
+
+void ShowSa1zyMenu(UIViewController *presenter) {
+    if (!presenter) return;
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    BOOL isVerified = [defaults boolForKey:kPrefVerified];
+    BOOL isMockLogin = [defaults boolForKey:kPrefMockLogin];
+    NSInteger followers = [defaults integerForKey:kPrefFollowers];
+    NSInteger likes = [defaults integerForKey:kPrefLikes];
+    NSString *nick = [defaults stringForKey:kPrefNickname] ?: @"";
+    NSString *user = [defaults stringForKey:kPrefUsername] ?: @"";
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Sa1zy TikTok Mod"
+                                                                   message:@"Визуальные настройки профиля"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *t) { t.placeholder = @"Имя (Никнейм)"; t.text = nick; }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *t) { t.placeholder = @"Юзернейм (@handle)"; t.text = user; }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *t) {
+        t.placeholder = @"Подписчики (число)";
+        t.keyboardType = UIKeyboardTypeNumberPad;
+        t.text = followers > 0 ? [NSString stringWithFormat:@"%ld", (long)followers] : @"";
+    }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *t) {
+        t.placeholder = @"Лайки (число)";
+        t.keyboardType = UIKeyboardTypeNumberPad;
+        t.text = likes > 0 ? [NSString stringWithFormat:@"%ld", (long)likes] : @"";
+    }];
+
+    NSString *toggleLogin = isMockLogin ? @"[✓] Вход без пароля: ВКЛ" : @"[ ] Вход без пароля: ВЫКЛ";
+    [alert addAction:[UIAlertAction actionWithTitle:toggleLogin style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        [defaults setBool:!isMockLogin forKey:kPrefMockLogin];
+        [defaults synchronize];
+        ShowSa1zyMenu(presenter);
+    }]];
+
+    NSString *toggleTitle = isVerified ? @"[✓] Галочка: ВКЛЮЧЕНА" : @"[ ] Галочка: ВЫКЛЮЧЕНА";
+    [alert addAction:[UIAlertAction actionWithTitle:toggleTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        [defaults setBool:!isVerified forKey:kPrefVerified];
+        [defaults synchronize];
+        ShowSa1zyMenu(presenter);
+    }]];
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"Сохранить" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        @try {
+            [defaults setObject:alert.textFields[0].text forKey:kPrefNickname];
+            [defaults setObject:alert.textFields[1].text forKey:kPrefUsername];
+            [defaults setInteger:[alert.textFields[2].text integerValue] forKey:kPrefFollowers];
+            [defaults setInteger:[alert.textFields[3].text integerValue] forKey:kPrefLikes];
+            [defaults synchronize];
+
+            UIAlertController *done = [UIAlertController alertControllerWithTitle:@"Сохранено!"
+                                                                          message:@"Настройки применены."
+                                                                   preferredStyle:UIAlertControllerStyleAlert];
+            [done addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+            [presenter presentViewController:done animated:YES completion:nil];
+        } @catch (NSException *e) {}
+    }]];
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"Отмена" style:UIAlertActionStyleCancel handler:nil]];
+    [presenter presentViewController:alert animated:YES completion:nil];
+}
