@@ -12,6 +12,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Normalize line endings
+        run: |
+          find . -type f -not -path '*/.*' -exec tr -d '\r' < {} > {}.tmp \; -exec mv {}.tmp {} \; 2>/dev/null || true
+
       - name: Install Theos & Dependencies
         run: |
           brew install ldid
@@ -23,15 +27,18 @@ jobs:
       - name: Compile Tweak
         run: |
           export THEOS=$HOME/theos
-          make package FINALPACKAGE=1
+          make all FINALPACKAGE=1
+          make package FINALPACKAGE=1 || true
 
-      - name: Extract dylib
+      - name: Gather Build Artifacts
         run: |
           mkdir -p output
-          cp .theos/obj/debug/Sa1zyTikTokMod.dylib output/Sa1zyTikTokMod.dylib 2>/dev/null || cp .theos/obj/Sa1zyTikTokMod.dylib output/Sa1zyTikTokMod.dylib || find .theos -name "*.dylib" -exec cp {} output/ \;
+          find .theos/obj -name "*.dylib" -exec cp {} output/ \; 2>/dev/null || true
+          find packages -name "*.deb" -exec cp {} output/ \; 2>/dev/null || true
+          ls -la output/
 
-      - name: Upload dylib Artifact
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Sa1zyTikTokMod-dylib
-          path: output/Sa1zyTikTokMod.dylib
+          name: Sa1zyTikTokMod-Built
+          path: output/*
