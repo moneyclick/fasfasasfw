@@ -14,6 +14,7 @@ jobs:
 
       - name: Install Theos & Dependencies
         run: |
+          brew install ldid
           git clone --recursive https://github.com/theos/theos.git ~/theos
           curl -LO https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz
           tar -xf iPhoneOS16.5.sdk.tar.xz -C ~/theos/sdks/
@@ -27,7 +28,7 @@ jobs:
       - name: Extract dylib
         run: |
           mkdir -p output
-          cp .theos/obj/debug/Sa1zyTikTokMod.dylib output/Sa1zyTikTokMod.dylib 2>/dev/null || cp .theos/obj/Sa1zyTikTokMod.dylib output/Sa1zyTikTokMod.dylib || find .theos -name *.dylib -exec cp {} output/ \;
+          cp .theos/obj/debug/Sa1zyTikTokMod.dylib output/Sa1zyTikTokMod.dylib 2>/dev/null || cp .theos/obj/Sa1zyTikTokMod.dylib output/Sa1zyTikTokMod.dylib || find .theos -name "*.dylib" -exec cp {} output/ \;
 
       - name: Upload dylib Artifact
         uses: actions/upload-artifact@v4
