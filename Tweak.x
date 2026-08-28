@@ -9,93 +9,7 @@ static NSString *const kPrefLikes = @"sa1zy_fake_likes";
 static NSString *const kPrefNickname = @"sa1zy_fake_nickname";
 static NSString *const kPrefUsername = @"sa1zy_fake_username";
 
-static void SafeSwizzle(Class cls, SEL origSel, SEL backupSel, IMP newImp, const char *types) {
-    if (!cls) return;
-    Method origMethod = class_getInstanceMethod(cls, origSel);
-    if (origMethod) {
-        class_addMethod(cls, backupSel, method_getImplementation(origMethod), method_getTypeEncoding(origMethod));
-        class_replaceMethod(cls, origSel, newImp, types);
-    } else {
-        class_addMethod(cls, origSel, newImp, types);
-    }
-}
-
-// 1. AWEUserModel Hooks
-static BOOL sa1zy_isVerified(id self, SEL _cmd) {
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return YES;
-    SEL orig = NSSelectorFromString(@"sa1zy_orig_isVerified");
-    if ([self respondsToSelector:orig]) {
-        BOOL (*fn)(id, SEL) = (BOOL (*)(id, SEL))objc_msgSend;
-        return fn(self, orig);
-    }
-    return NO;
-}
-
-static BOOL sa1zy_isVerification(id self, SEL _cmd) {
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return YES;
-    SEL orig = NSSelectorFromString(@"sa1zy_orig_isVerification");
-    if ([self respondsToSelector:orig]) {
-        BOOL (*fn)(id, SEL) = (BOOL (*)(id, SEL))objc_msgSend;
-        return fn(self, orig);
-    }
-    return NO;
-}
-
-static NSString *sa1zy_customVerify(id self, SEL _cmd) {
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return @"Verified Account";
-    SEL orig = NSSelectorFromString(@"sa1zy_orig_customVerify");
-    if ([self respondsToSelector:orig]) {
-        id (*fn)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
-        return fn(self, orig);
-    }
-    return nil;
-}
-
-static NSInteger sa1zy_followerCount(id self, SEL _cmd) {
-    NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
-    if (fake > 0) return fake;
-    SEL orig = NSSelectorFromString(@"sa1zy_orig_followerCount");
-    if ([self respondsToSelector:orig]) {
-        NSInteger (*fn)(id, SEL) = (NSInteger (*)(id, SEL))objc_msgSend;
-        return fn(self, orig);
-    }
-    return 0;
-}
-
-static NSInteger sa1zy_totalFavorited(id self, SEL _cmd) {
-    NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefLikes];
-    if (fake > 0) return fake;
-    SEL orig = NSSelectorFromString(@"sa1zy_orig_totalFavorited");
-    if ([self respondsToSelector:orig]) {
-        NSInteger (*fn)(id, SEL) = (NSInteger (*)(id, SEL))objc_msgSend;
-        return fn(self, orig);
-    }
-    return 0;
-}
-
-static NSString *sa1zy_nickname(id self, SEL _cmd) {
-    NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefNickname];
-    if (fake && fake.length > 0) return fake;
-    SEL orig = NSSelectorFromString(@"sa1zy_orig_nickname");
-    if ([self respondsToSelector:orig]) {
-        id (*fn)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
-        return fn(self, orig);
-    }
-    return @"";
-}
-
-static NSString *sa1zy_uniqueID(id self, SEL _cmd) {
-    NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefUsername];
-    if (fake && fake.length > 0) return fake;
-    SEL orig = NSSelectorFromString(@"sa1zy_orig_uniqueID");
-    if ([self respondsToSelector:orig]) {
-        id (*fn)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
-        return fn(self, orig);
-    }
-    return @"";
-}
-
-// 2. Menu Dialog
+// 1. UI Settings Menu
 static void ShowSa1zyMenu(UIViewController *presenter) {
     if (!presenter) return;
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -149,18 +63,96 @@ static void ShowSa1zyMenu(UIViewController *presenter) {
     [presenter presentViewController:alert animated:YES completion:nil];
 }
 
-// 3. UIViewController gesture hook
-static void sa1zy_viewDidAppear(id self, SEL _cmd, BOOL animated) {
-    SEL orig = NSSelectorFromString(@"sa1zy_orig_viewDidAppear");
-    if ([self respondsToSelector:orig]) {
-        void (*fn)(id, SEL, BOOL) = (void (*)(id, SEL, BOOL))objc_msgSend;
-        fn(self, orig, animated);
+// 2. Хук галочки через лейбл имени (как в BHTikTok++)
+@interface AWEUserNameLabel : UILabel
+- (void)addVerifiedIcon:(BOOL)arg1;
+@end
+
+%hook AWEUserNameLabel
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) {
+        if ([self respondsToSelector:@selector(addVerifiedIcon:)]) {
+            [self addVerifiedIcon:YES];
+        }
     }
+}
+%end
+
+// 3. Хук модели компонентов профиля (как в BHTikTok++)
+@interface TTKProfileBaseComponentModel : NSObject
+@property (nonatomic, copy) NSString *componentID;
+@end
+
+%hook TTKProfileBaseComponentModel
+- (NSDictionary *)bizData {
+    NSDictionary *orig = %orig;
+    if (!orig) return orig;
     
-    UIViewController *vc = (UIViewController *)self;
-    if ([vc isMemberOfClass:[UIViewController class]] || [NSStringFromClass([vc class]) containsString:@"Profile"] || [NSStringFromClass([vc class]) containsString:@"Feed"] || [NSStringFromClass([vc class]) containsString:@"Main"]) {
+    NSInteger followers = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
+    if (followers > 0 && [self.componentID isEqualToString:@"relation_info_follower"]) {
+        NSMutableDictionary *mod = [orig mutableCopy];
+        mod[@"follower_count"] = @(followers);
+        return [mod copy];
+    }
+    return orig;
+}
+%end
+
+// 4. Дополнительный хук AWEUserModel
+%hook AWEUserModel
+- (BOOL)isVerified {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return YES;
+    return %orig;
+}
+- (BOOL)isVerification {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return YES;
+    return %orig;
+}
+- (NSString *)customVerify {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return @"Verified Account";
+    return %orig;
+}
+- (NSInteger)followerCount {
+    NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
+    if (fake > 0) return fake;
+    return %orig;
+}
+- (NSInteger)fansCount {
+    NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
+    if (fake > 0) return fake;
+    return %orig;
+}
+- (NSInteger)totalFavorited {
+    NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefLikes];
+    if (fake > 0) return fake;
+    return %orig;
+}
+- (NSString *)nickname {
+    NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefNickname];
+    if (fake && fake.length > 0) return fake;
+    return %orig;
+}
+- (NSString *)uniqueID {
+    NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefUsername];
+    if (fake && fake.length > 0) return fake;
+    return %orig;
+}
+- (NSString *)shortID {
+    NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefUsername];
+    if (fake && fake.length > 0) return fake;
+    return %orig;
+}
+%end
+
+// 5. Жест вызова меню (2 пальца, 2 тапа)
+%hook UIViewController
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    NSString *cls = NSStringFromClass([self class]);
+    if ([cls containsString:@"Profile"] || [cls containsString:@"Feed"] || [cls containsString:@"Main"]) {
         BOOL exists = NO;
-        for (UIGestureRecognizer *g in vc.view.gestureRecognizers) {
+        for (UIGestureRecognizer *g in self.view.gestureRecognizers) {
             if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
                 UITapGestureRecognizer *tg = (UITapGestureRecognizer *)g;
                 if (tg.numberOfTouchesRequired == 2 && tg.numberOfTapsRequired == 2) {
@@ -170,37 +162,17 @@ static void sa1zy_viewDidAppear(id self, SEL _cmd, BOOL animated) {
             }
         }
         if (!exists) {
-            UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:vc action:@selector(sa1zy_openMenuAction)];
+            UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(sa1zy_openMenu)];
             tap.numberOfTouchesRequired = 2;
             tap.numberOfTapsRequired = 2;
             tap.cancelsTouchesInView = NO;
-            [vc.view addGestureRecognizer:tap];
+            [self.view addGestureRecognizer:tap];
         }
     }
 }
 
-static void sa1zy_openMenuAction(id self, SEL _cmd) {
-    ShowSa1zyMenu((UIViewController *)self);
+%new
+- (void)sa1zy_openMenu {
+    ShowSa1zyMenu(self);
 }
-
-__attribute__((constructor)) static void Sa1zyInit(void) {
-    @autoreleasepool {
-        // Hook UIViewController
-        class_addMethod([UIViewController class], @selector(sa1zy_openMenuAction), (IMP)sa1zy_openMenuAction, "v@:");
-        SafeSwizzle([UIViewController class], @selector(viewDidAppear:), NSSelectorFromString(@"sa1zy_orig_viewDidAppear"), (IMP)sa1zy_viewDidAppear, "v@:B");
-
-        // Hook AWEUserModel
-        Class userCls = objc_getClass("AWEUserModel");
-        if (userCls) {
-            SafeSwizzle(userCls, @selector(isVerified), NSSelectorFromString(@"sa1zy_orig_isVerified"), (IMP)sa1zy_isVerified, "B@:");
-            SafeSwizzle(userCls, @selector(isVerification), NSSelectorFromString(@"sa1zy_orig_isVerification"), (IMP)sa1zy_isVerification, "B@:");
-            SafeSwizzle(userCls, @selector(customVerify), NSSelectorFromString(@"sa1zy_orig_customVerify"), (IMP)sa1zy_customVerify, "@@:");
-            SafeSwizzle(userCls, @selector(followerCount), NSSelectorFromString(@"sa1zy_orig_followerCount"), (IMP)sa1zy_followerCount, "q@:");
-            SafeSwizzle(userCls, @selector(fansCount), NSSelectorFromString(@"sa1zy_orig_fansCount"), (IMP)sa1zy_followerCount, "q@:");
-            SafeSwizzle(userCls, @selector(totalFavorited), NSSelectorFromString(@"sa1zy_orig_totalFavorited"), (IMP)sa1zy_totalFavorited, "q@:");
-            SafeSwizzle(userCls, @selector(nickname), NSSelectorFromString(@"sa1zy_orig_nickname"), (IMP)sa1zy_nickname, "@@:");
-            SafeSwizzle(userCls, @selector(uniqueID), NSSelectorFromString(@"sa1zy_orig_uniqueID"), (IMP)sa1zy_uniqueID, "@@:");
-            SafeSwizzle(userCls, @selector(shortID), NSSelectorFromString(@"sa1zy_orig_shortID"), (IMP)sa1zy_uniqueID, "@@:");
-        }
-    }
-}
+%end
