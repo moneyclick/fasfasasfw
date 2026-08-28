@@ -10,6 +10,8 @@ static NSString *const kPrefNickname = @"sa1zy_fake_nickname";
 static NSString *const kPrefUsername = @"sa1zy_fake_username";
 
 // 0. ПОЛНАЯ БЛОКИРОВКА ОКНА АКТИВАЦИИ RXTIKTOK И ЛЮБЫХ КЛЮЧЕЙ
+
+// 0.1 Перехват через UIAlertController
 %hook UIViewController
 - (void)presentViewController:(UIViewController *)viewControllerToPresent animated:(BOOL)flag completion:(void (^)(void))completion {
     if (!viewControllerToPresent) {
@@ -17,7 +19,6 @@ static NSString *const kPrefUsername = @"sa1zy_fake_username";
         return;
     }
     
-    // Блокируем UIAlertController с запросом ключа (RXTikTok / XavierHernan / ashhadsaeed1)
     if ([viewControllerToPresent isKindOfClass:[UIAlertController class]]) {
         UIAlertController *alert = (UIAlertController *)viewControllerToPresent;
         NSString *title = alert.title ?: @"";
@@ -29,7 +30,6 @@ static NSString *const kPrefUsername = @"sa1zy_fake_username";
             [msg containsString:@"ключ"] || [msg containsString:@"Ключ"] ||
             [msg containsString:@"активац"] || [msg containsString:@"Активац"] ||
             [msg containsString:@"Xavier"] || [msg containsString:@"ashhad"]) {
-            // Тихо глушим окно, чтобы пользователь сразу пользовался Тиктоком
             if (completion) completion();
             return;
         }
@@ -72,6 +72,31 @@ static NSString *const kPrefUsername = @"sa1zy_fake_username";
 - (void)sa1zy_openMenu {
     extern void ShowSa1zyMenu(UIViewController *presenter);
     ShowSa1zyMenu(self);
+}
+%end
+
+// 0.2 Перехват через нативный AWEUIAlertView
+@interface AWEUIAlertView : NSObject
+@end
+
+%hook AWEUIAlertView
++ (void)showAlertWithTitle:(id)arg1 description:(id)arg2 image:(id)arg3 actionButtonTitle:(id)arg4 cancelButtonTitle:(id)arg5 actionBlock:(id)arg6 cancelBlock:(id)arg7 {
+    NSString *title = [NSString stringWithFormat:@"%@", arg1 ?: @""];
+    NSString *desc = [NSString stringWithFormat:@"%@", arg2 ?: @""];
+    if ([title containsString:@"RXTikTok"] || [title containsString:@"активац"] || [title containsString:@"ключ"] ||
+        [desc containsString:@"активац"] || [desc containsString:@"ключ"] || [desc containsString:@"Xavier"] || [desc containsString:@"ashhad"]) {
+        return;
+    }
+    %orig;
+}
++ (void)showAlertWithTitle:(id)arg1 message:(id)arg2 {
+    NSString *title = [NSString stringWithFormat:@"%@", arg1 ?: @""];
+    NSString *desc = [NSString stringWithFormat:@"%@", arg2 ?: @""];
+    if ([title containsString:@"RXTikTok"] || [title containsString:@"активац"] || [title containsString:@"ключ"] ||
+        [desc containsString:@"активац"] || [desc containsString:@"ключ"] || [desc containsString:@"Xavier"] || [desc containsString:@"ashhad"]) {
+        return;
+    }
+    %orig;
 }
 %end
 
