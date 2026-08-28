@@ -1,7 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
 
 static NSString *const kPrefVerified = @"sa1zy_fake_verified";
 static NSString *const kPrefFollowers = @"sa1zy_fake_followers";
@@ -10,11 +9,8 @@ static NSString *const kPrefNickname = @"sa1zy_fake_nickname";
 static NSString *const kPrefUsername = @"sa1zy_fake_username";
 
 // =========================================================================
-// 0. FIX: Устранение краша iOS 16 (____UIKitSharedBoundingPathDataManager)
+// 0. FIX 1: Устранение краша iOS 16 (BoundingPath)
 // =========================================================================
-// На iPhone X / iOS 16 в sideloaded приложениях при показе стартовых шторрок
-// _UIScreenComplexBoundingPathUtilities падает с ошибкой в памяти 0x74.
-// Принудительно используем _UIScreenSimpleBoundingPathUtilities.
 @interface _UIScreenBoundingPathUtilities : NSObject
 + (id)boundingPathUtilitiesForScreen:(id)screen;
 @end
@@ -34,7 +30,36 @@ static NSString *const kPrefUsername = @"sa1zy_fake_username";
 %end
 
 // =========================================================================
-// 1. Жест вызова меню (Двойное касание 2 пальцами + Shake)
+// 1. FIX 2: Обход экрана даты рождения и ошибки "Недопустимые параметры"
+// =========================================================================
+// Полностью отключаем застревание на экране AgeGate / Birthday
+%hook PNSAgeGateService
+- (BOOL)needAgeGate {
+    return NO;
+}
+- (BOOL)_needAgeGate {
+    return NO;
+}
++ (BOOL)needAgeGate {
+    return NO;
+}
+- (BOOL)didRunNUJAgeGate {
+    return YES;
+}
+%end
+
+// Пропускаем проверку возраста при авторизации / регистрации
+%hook TTKUserAgeGateInfoService
+- (BOOL)didRunAgeGate {
+    return YES;
+}
+- (BOOL)isPassedAgeGate {
+    return YES;
+}
+%end
+
+// =========================================================================
+// 2. Меню настроек твика (2 тапа двумя пальцами или встряхивание телефона)
 // =========================================================================
 void ShowSa1zyMenu(UIViewController *presenter);
 
@@ -69,7 +94,6 @@ void ShowSa1zyMenu(UIViewController *presenter);
 }
 %end
 
-// Открытие по встряхиванию (Shake)
 %hook UIWindow
 - (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event {
     %orig;
@@ -83,9 +107,6 @@ void ShowSa1zyMenu(UIViewController *presenter);
 }
 %end
 
-// =========================================================================
-// 2. UI Меню настроек
-// =========================================================================
 void ShowSa1zyMenu(UIViewController *presenter) {
     if (!presenter) return;
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -96,18 +117,18 @@ void ShowSa1zyMenu(UIViewController *presenter) {
     NSString *user = [defaults stringForKey:kPrefUsername] ?: @"";
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Sa1zy TikTok Mod"
-                                                                   message:@"Визуальные настройки профиля\n(Двойной тап 2 пальцами или потрясти телефон)"
+                                                                   message:@"Визуальные настройки профиля"
                                                             preferredStyle:UIAlertControllerStyleAlert];
 
     [alert addTextFieldWithConfigurationHandler:^(UITextField *t) { t.placeholder = @"Имя (Никнейм)"; t.text = nick; }];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *t) { t.placeholder = @"Юзернейм (@handle)"; t.text = user; }];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *t) {
-        t.placeholder = @"Подписчики (число, напр. 1000000)";
+        t.placeholder = @"Подписчики (число)";
         t.keyboardType = UIKeyboardTypeNumberPad;
         t.text = followers > 0 ? [NSString stringWithFormat:@"%ld", (long)followers] : @"";
     }];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *t) {
-        t.placeholder = @"Лайки (число, напр. 5000000)";
+        t.placeholder = @"Лайки (число)";
         t.keyboardType = UIKeyboardTypeNumberPad;
         t.text = likes > 0 ? [NSString stringWithFormat:@"%ld", (long)likes] : @"";
     }];
@@ -180,7 +201,7 @@ void ShowSa1zyMenu(UIViewController *presenter) {
 %end
 
 // =========================================================================
-// 5. Хук AWEUserModel (с правильными типами NSNumber*)
+// 5. Хук AWEUserModel (галочка, подписчики, лайки, ник)
 // =========================================================================
 @interface AWEUserModel : NSObject
 - (BOOL)isMe;
@@ -212,13 +233,10 @@ void ShowSa1zyMenu(UIViewController *presenter) {
     return %orig;
 }
 
-// ВНИМАНИЕ: followerCount и totalFavorited в TikTok возвращают NSNumber*!
 - (id)followerCount {
     NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
     if (fake > 0) {
-        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
-            return %orig; // не меняем чужих авторов в ленте
-        }
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) return %orig;
         return @(fake);
     }
     return %orig;
@@ -227,9 +245,7 @@ void ShowSa1zyMenu(UIViewController *presenter) {
 - (id)fansCount {
     NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
     if (fake > 0) {
-        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
-            return %orig;
-        }
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) return %orig;
         return @(fake);
     }
     return %orig;
@@ -238,9 +254,7 @@ void ShowSa1zyMenu(UIViewController *presenter) {
 - (id)totalFavorited {
     NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefLikes];
     if (fake > 0) {
-        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
-            return %orig;
-        }
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) return %orig;
         return @(fake);
     }
     return %orig;
@@ -249,9 +263,7 @@ void ShowSa1zyMenu(UIViewController *presenter) {
 - (NSString *)nickname {
     NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefNickname];
     if (fake && fake.length > 0) {
-        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
-            return %orig;
-        }
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) return %orig;
         return fake;
     }
     return %orig;
@@ -260,9 +272,7 @@ void ShowSa1zyMenu(UIViewController *presenter) {
 - (NSString *)uniqueID {
     NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefUsername];
     if (fake && fake.length > 0) {
-        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
-            return %orig;
-        }
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) return %orig;
         return fake;
     }
     return %orig;
@@ -271,9 +281,7 @@ void ShowSa1zyMenu(UIViewController *presenter) {
 - (NSString *)shortID {
     NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefUsername];
     if (fake && fake.length > 0) {
-        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
-            return %orig;
-        }
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) return %orig;
         return fake;
     }
     return %orig;
