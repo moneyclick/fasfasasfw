@@ -33,7 +33,8 @@ jobs:
       - name: Gather Build Artifacts
         run: |
           mkdir -p output
-          find .theos/obj -name "*.dylib" -exec cp {} output/ \; 2>/dev/null || true
+          # Копируем ТОЛЬКО настоящий исполняемый dylib (исключая .dSYM отладку)
+          find .theos/obj -type f -name "*.dylib" ! -path "*.dSYM*" -exec cp {} output/ \; 2>/dev/null || true
           find packages -name "*.deb" -exec cp {} output/ \; 2>/dev/null || true
           ls -la output/
 

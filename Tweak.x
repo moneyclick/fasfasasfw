@@ -9,45 +9,40 @@ static NSString *const kPrefLikes = @"sa1zy_fake_likes";
 static NSString *const kPrefNickname = @"sa1zy_fake_nickname";
 static NSString *const kPrefUsername = @"sa1zy_fake_username";
 
-// 0. ПОЛНАЯ БЛОКИРОВКА ОКНА АКТИВАЦИИ RXTIKTOK И ЛЮБЫХ КЛЮЧЕЙ
+// =========================================================================
+// 0. FIX: Устранение краша iOS 16 (____UIKitSharedBoundingPathDataManager)
+// =========================================================================
+// На iPhone X / iOS 16 в sideloaded приложениях при показе стартовых шторрок
+// _UIScreenComplexBoundingPathUtilities падает с ошибкой в памяти 0x74.
+// Принудительно используем _UIScreenSimpleBoundingPathUtilities.
+@interface _UIScreenBoundingPathUtilities : NSObject
++ (id)boundingPathUtilitiesForScreen:(id)screen;
+@end
 
-// 0.1 Перехват через UIAlertController
-%hook UIViewController
-- (void)presentViewController:(UIViewController *)viewControllerToPresent animated:(BOOL)flag completion:(void (^)(void))completion {
-    if (!viewControllerToPresent) {
-        if (completion) completion();
-        return;
-    }
-    
-    if ([viewControllerToPresent isKindOfClass:[UIAlertController class]]) {
-        UIAlertController *alert = (UIAlertController *)viewControllerToPresent;
-        NSString *title = alert.title ?: @"";
-        NSString *msg = alert.message ?: @"";
-        
-        if ([title isEqualToString:@"RXTikTok"] ||
-            [title containsString:@"активац"] || [title containsString:@"Активац"] ||
-            [title containsString:@"ключ"] || [title containsString:@"Ключ"] ||
-            [msg containsString:@"ключ"] || [msg containsString:@"Ключ"] ||
-            [msg containsString:@"активац"] || [msg containsString:@"Активац"] ||
-            [msg containsString:@"Xavier"] || [msg containsString:@"ashhad"]) {
-            if (completion) completion();
-            return;
-        }
-    }
-    
-    NSString *cls = NSStringFromClass([viewControllerToPresent class]);
-    if ([cls containsString:@"Security"] || [cls containsString:@"Lock"] || [cls containsString:@"Passcode"]) {
-        if (completion) completion();
-        return;
-    }
+@interface _UIScreenSimpleBoundingPathUtilities : NSObject
+- (id)initWithScreen:(id)screen;
+@end
 
-    %orig;
+%hook _UIScreenBoundingPathUtilities
++ (id)boundingPathUtilitiesForScreen:(id)screen {
+    Class simpleCls = objc_getClass("_UIScreenSimpleBoundingPathUtilities");
+    if (simpleCls) {
+        return [[simpleCls alloc] initWithScreen:screen];
+    }
+    return %orig;
 }
+%end
 
+// =========================================================================
+// 1. Жест вызова меню (Двойное касание 2 пальцами + Shake)
+// =========================================================================
+void ShowSa1zyMenu(UIViewController *presenter);
+
+%hook UIViewController
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     NSString *cls = NSStringFromClass([self class]);
-    if ([cls containsString:@"Profile"] || [cls containsString:@"Feed"] || [cls containsString:@"Main"]) {
+    if ([cls containsString:@"Profile"] || [cls containsString:@"Feed"] || [cls containsString:@"Main"] || [cls containsString:@"Root"]) {
         BOOL exists = NO;
         for (UIGestureRecognizer *g in self.view.gestureRecognizers) {
             if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
@@ -70,37 +65,27 @@ static NSString *const kPrefUsername = @"sa1zy_fake_username";
 
 %new
 - (void)sa1zy_openMenu {
-    extern void ShowSa1zyMenu(UIViewController *presenter);
     ShowSa1zyMenu(self);
 }
 %end
 
-// 0.2 Перехват через нативный AWEUIAlertView
-@interface AWEUIAlertView : NSObject
-@end
-
-%hook AWEUIAlertView
-+ (void)showAlertWithTitle:(id)arg1 description:(id)arg2 image:(id)arg3 actionButtonTitle:(id)arg4 cancelButtonTitle:(id)arg5 actionBlock:(id)arg6 cancelBlock:(id)arg7 {
-    NSString *title = [NSString stringWithFormat:@"%@", arg1 ?: @""];
-    NSString *desc = [NSString stringWithFormat:@"%@", arg2 ?: @""];
-    if ([title containsString:@"RXTikTok"] || [title containsString:@"активац"] || [title containsString:@"ключ"] ||
-        [desc containsString:@"активац"] || [desc containsString:@"ключ"] || [desc containsString:@"Xavier"] || [desc containsString:@"ashhad"]) {
-        return;
-    }
+// Открытие по встряхиванию (Shake)
+%hook UIWindow
+- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event {
     %orig;
-}
-+ (void)showAlertWithTitle:(id)arg1 message:(id)arg2 {
-    NSString *title = [NSString stringWithFormat:@"%@", arg1 ?: @""];
-    NSString *desc = [NSString stringWithFormat:@"%@", arg2 ?: @""];
-    if ([title containsString:@"RXTikTok"] || [title containsString:@"активац"] || [title containsString:@"ключ"] ||
-        [desc containsString:@"активац"] || [desc containsString:@"ключ"] || [desc containsString:@"Xavier"] || [desc containsString:@"ashhad"]) {
-        return;
+    if (motion == UIEventSubtypeMotionShake) {
+        UIViewController *rootVC = self.rootViewController;
+        while (rootVC.presentedViewController) {
+            rootVC = rootVC.presentedViewController;
+        }
+        ShowSa1zyMenu(rootVC);
     }
-    %orig;
 }
 %end
 
-// 1. UI Меню настроек
+// =========================================================================
+// 2. UI Меню настроек
+// =========================================================================
 void ShowSa1zyMenu(UIViewController *presenter) {
     if (!presenter) return;
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
@@ -111,7 +96,7 @@ void ShowSa1zyMenu(UIViewController *presenter) {
     NSString *user = [defaults stringForKey:kPrefUsername] ?: @"";
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Sa1zy TikTok Mod"
-                                                                   message:@"Визуальные настройки профиля"
+                                                                   message:@"Визуальные настройки профиля\n(Двойной тап 2 пальцами или потрясти телефон)"
                                                             preferredStyle:UIAlertControllerStyleAlert];
 
     [alert addTextFieldWithConfigurationHandler:^(UITextField *t) { t.placeholder = @"Имя (Никнейм)"; t.text = nick; }];
@@ -143,7 +128,7 @@ void ShowSa1zyMenu(UIViewController *presenter) {
             [defaults synchronize];
 
             UIAlertController *done = [UIAlertController alertControllerWithTitle:@"Сохранено!"
-                                                                          message:@"Перейди в профиль для обновления."
+                                                                          message:@"Перейди в свой профиль для обновления."
                                                                    preferredStyle:UIAlertControllerStyleAlert];
             [done addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
             [presenter presentViewController:done animated:YES completion:nil];
@@ -154,7 +139,9 @@ void ShowSa1zyMenu(UIViewController *presenter) {
     [presenter presentViewController:alert animated:YES completion:nil];
 }
 
-// 2. Хук галочки через лейбл имени (как в BHTikTok++)
+// =========================================================================
+// 3. Хук галочки в лейбле имени
+// =========================================================================
 @interface AWEUserNameLabel : UILabel
 - (void)addVerifiedIcon:(BOOL)arg1;
 @end
@@ -170,7 +157,9 @@ void ShowSa1zyMenu(UIViewController *presenter) {
 }
 %end
 
-// 3. Хук модели компонентов профиля (как в BHTikTok++)
+// =========================================================================
+// 4. Хук компонентов профиля
+// =========================================================================
 @interface TTKProfileBaseComponentModel : NSObject
 @property (nonatomic, copy) NSString *componentID;
 @end
@@ -190,7 +179,13 @@ void ShowSa1zyMenu(UIViewController *presenter) {
 }
 %end
 
-// 4. Хук AWEUserModel
+// =========================================================================
+// 5. Хук AWEUserModel (с правильными типами NSNumber*)
+// =========================================================================
+@interface AWEUserModel : NSObject
+- (BOOL)isMe;
+@end
+
 %hook AWEUserModel
 - (BOOL)isVerified {
     if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return YES;
@@ -200,38 +195,87 @@ void ShowSa1zyMenu(UIViewController *presenter) {
     if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return YES;
     return %orig;
 }
+- (BOOL)isVerifiedUser {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return YES;
+    return %orig;
+}
+- (BOOL)isVerifiedBlue {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return YES;
+    return %orig;
+}
 - (NSString *)customVerify {
     if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return @"Verified Account";
     return %orig;
 }
-- (NSInteger)followerCount {
-    NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
-    if (fake > 0) return fake;
+- (NSString *)customVerifyInfo {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return @"Verified Account";
     return %orig;
 }
-- (NSInteger)fansCount {
+
+// ВНИМАНИЕ: followerCount и totalFavorited в TikTok возвращают NSNumber*!
+- (id)followerCount {
     NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
-    if (fake > 0) return fake;
+    if (fake > 0) {
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
+            return %orig; // не меняем чужих авторов в ленте
+        }
+        return @(fake);
+    }
     return %orig;
 }
-- (NSInteger)totalFavorited {
+
+- (id)fansCount {
+    NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
+    if (fake > 0) {
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
+            return %orig;
+        }
+        return @(fake);
+    }
+    return %orig;
+}
+
+- (id)totalFavorited {
     NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefLikes];
-    if (fake > 0) return fake;
+    if (fake > 0) {
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
+            return %orig;
+        }
+        return @(fake);
+    }
     return %orig;
 }
+
 - (NSString *)nickname {
     NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefNickname];
-    if (fake && fake.length > 0) return fake;
+    if (fake && fake.length > 0) {
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
+            return %orig;
+        }
+        return fake;
+    }
     return %orig;
 }
+
 - (NSString *)uniqueID {
     NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefUsername];
-    if (fake && fake.length > 0) return fake;
+    if (fake && fake.length > 0) {
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
+            return %orig;
+        }
+        return fake;
+    }
     return %orig;
 }
+
 - (NSString *)shortID {
     NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefUsername];
-    if (fake && fake.length > 0) return fake;
+    if (fake && fake.length > 0) {
+        if ([self respondsToSelector:@selector(isMe)] && ![self isMe]) {
+            return %orig;
+        }
+        return fake;
+    }
     return %orig;
 }
 %end
