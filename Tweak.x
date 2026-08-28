@@ -8,6 +8,24 @@ static NSString *const kPrefLikes = @"sa1zy_fake_likes";
 static NSString *const kPrefNickname = @"sa1zy_fake_nickname";
 static NSString *const kPrefUsername = @"sa1zy_fake_username";
 
+// 1. Обход детекта модификации бандла (Sideload / Bundle Mangling Bypass)
+%hook NSBundle
+- (NSString *)bundleIdentifier {
+    NSString *orig = %orig;
+    if ([orig containsString:@"musically"] || [orig containsString:@"TikTok"] || [orig containsString:@"zhiliao"]) {
+        return @"com.zhiliaoapp.musically";
+    }
+    return orig;
+}
+%end
+
+// 2. Блокировка краш-репортеров и встроенных детекторов безопасности TikTok
+%hook BDTuring
++ (BOOL)isJailbroken {
+    return NO;
+}
+%end
+
 @interface AWEUserModel : NSObject
 - (BOOL)isCurrentLoginUser;
 - (BOOL)isVerified;
@@ -32,11 +50,11 @@ static void ShowSa1zySettingsMenu(UIViewController *presentingVC) {
     NSString *username = [defaults stringForKey:kPrefUsername] ?: @"";
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Sa1zy TikTok Mod"
-                                                                   message:@"Настройки визуального отображения"
+                                                                   message:@"Визуальная настройка профиля"
                                                             preferredStyle:UIAlertControllerStyleAlert];
 
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Никнейм (Имя в профиле)";
+        textField.placeholder = @"Никнейм (Отображаемое имя)";
         textField.text = nickname;
     }];
 
@@ -46,18 +64,18 @@ static void ShowSa1zySettingsMenu(UIViewController *presentingVC) {
     }];
 
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Подписчики (например 1000000)";
+        textField.placeholder = @"Подписчики (число, напр. 1000000)";
         textField.keyboardType = UIKeyboardTypeNumberPad;
         textField.text = followers > 0 ? [NSString stringWithFormat:@"%ld", (long)followers] : @"";
     }];
 
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Лайки (например 5000000)";
+        textField.placeholder = @"Лайки (число, напр. 5000000)";
         textField.keyboardType = UIKeyboardTypeNumberPad;
         textField.text = likes > 0 ? [NSString stringWithFormat:@"%ld", (long)likes] : @"";
     }];
 
-    NSString *toggleTitle = isVerified ? @"[✓] Галочка: ВКЛЮЧЕНА" : @"[ ] Галочка: ВЫКЛЮЧЕНА";
+    NSString *toggleTitle = isVerified ? @"[✓] Галочка: ВКЛЮЧЕНА (Тап для выкл)" : @"[ ] Галочка: ВЫКЛЮЧЕНА (Тап для вкл)";
     UIAlertAction *toggleVerified = [UIAlertAction actionWithTitle:toggleTitle style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         [defaults setBool:!isVerified forKey:kPrefVerified];
         [defaults synchronize];
@@ -78,8 +96,8 @@ static void ShowSa1zySettingsMenu(UIViewController *presentingVC) {
             [defaults setInteger:[newLikesStr integerValue] forKey:kPrefLikes];
             [defaults synchronize];
 
-            UIAlertController *doneAlert = [UIAlertController alertControllerWithTitle:@"Успешно"
-                                                                               message:@"Настройки применены. Обновите страницу профиля."
+            UIAlertController *doneAlert = [UIAlertController alertControllerWithTitle:@"Сохранено"
+                                                                               message:@"Перезайди в профиль для обновления интерфейса."
                                                                         preferredStyle:UIAlertControllerStyleAlert];
             [doneAlert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
             [presentingVC presentViewController:doneAlert animated:YES completion:nil];
@@ -93,11 +111,11 @@ static void ShowSa1zySettingsMenu(UIViewController *presentingVC) {
     [presentingVC presentViewController:alert animated:YES completion:nil];
 }
 
-static BOOL IsTargetCurrentUser(id userModel) {
-    if (!userModel) return NO;
+static BOOL IsCurrentUser(id target) {
+    if (!target) return NO;
     @try {
-        if ([userModel respondsToSelector:@selector(isCurrentLoginUser)]) {
-            return [userModel isCurrentLoginUser];
+        if ([target respondsToSelector:@selector(isCurrentLoginUser)]) {
+            return [target isCurrentLoginUser];
         }
     } @catch (NSException *e) {
         return NO;
@@ -105,68 +123,68 @@ static BOOL IsTargetCurrentUser(id userModel) {
     return YES;
 }
 
-// Безопасный хук на контроллер профиля для добавления жеста меню
+// 3. Безопасный триггер вызова меню по двойному тапу 2 пальцами
 %hook UIViewController
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     @try {
-        NSString *className = NSStringFromClass([self class]);
-        if ([className containsString:@"UserProfile"] || [className containsString:@"AWEProfile"] || [className containsString:@"AWEFeed"]) {
-            BOOL alreadyAdded = NO;
+        NSString *cls = NSStringFromClass([self class]);
+        if ([cls containsString:@"Profile"] || [cls containsString:@"Feed"] || [cls containsString:@"AWE"]) {
+            BOOL exists = NO;
             for (UIGestureRecognizer *g in self.view.gestureRecognizers) {
                 if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
                     UITapGestureRecognizer *tg = (UITapGestureRecognizer *)g;
                     if (tg.numberOfTouchesRequired == 2 && tg.numberOfTapsRequired == 2) {
-                        alreadyAdded = YES;
+                        exists = YES;
                         break;
                     }
                 }
             }
-            if (!alreadyAdded) {
-                UITapGestureRecognizer *twoFingerTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(sa1zy_openSettingsMenu)];
-                twoFingerTap.numberOfTouchesRequired = 2;
-                twoFingerTap.numberOfTapsRequired = 2;
-                twoFingerTap.cancelsTouchesInView = NO;
-                [self.view addGestureRecognizer:twoFingerTap];
+            if (!exists) {
+                UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(sa1zy_openMenu)];
+                doubleTap.numberOfTouchesRequired = 2;
+                doubleTap.numberOfTapsRequired = 2;
+                doubleTap.cancelsTouchesInView = NO;
+                [self.view addGestureRecognizer:doubleTap];
             }
         }
     } @catch (NSException *e) {}
 }
 
 %new
-- (void)sa1zy_openSettingsMenu {
+- (void)sa1zy_openMenu {
     ShowSa1zySettingsMenu(self);
 }
 
 %end
 
-// Хуки на модель пользователя с защитой от сбоев
+// 4. Подмена модели профиля TikTok
 %hook AWEUserModel
 
 - (BOOL)isVerified {
-    if (IsTargetCurrentUser(self) && [[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) {
+    if (IsCurrentUser(self) && [[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) {
         return YES;
     }
     return %orig;
 }
 
 - (BOOL)isVerification {
-    if (IsTargetCurrentUser(self) && [[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) {
+    if (IsCurrentUser(self) && [[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) {
         return YES;
     }
     return %orig;
 }
 
 - (NSString *)customVerify {
-    if (IsTargetCurrentUser(self) && [[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) {
+    if (IsCurrentUser(self) && [[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) {
         return @"Verified Account";
     }
     return %orig;
 }
 
 - (NSInteger)followerCount {
-    if (IsTargetCurrentUser(self)) {
+    if (IsCurrentUser(self)) {
         NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
         if (fake > 0) return fake;
     }
@@ -174,7 +192,7 @@ static BOOL IsTargetCurrentUser(id userModel) {
 }
 
 - (NSInteger)fansCount {
-    if (IsTargetCurrentUser(self)) {
+    if (IsCurrentUser(self)) {
         NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefFollowers];
         if (fake > 0) return fake;
     }
@@ -182,7 +200,7 @@ static BOOL IsTargetCurrentUser(id userModel) {
 }
 
 - (NSInteger)totalFavorited {
-    if (IsTargetCurrentUser(self)) {
+    if (IsCurrentUser(self)) {
         NSInteger fake = [[NSUserDefaults standardUserDefaults] integerForKey:kPrefLikes];
         if (fake > 0) return fake;
     }
@@ -190,7 +208,7 @@ static BOOL IsTargetCurrentUser(id userModel) {
 }
 
 - (NSString *)nickname {
-    if (IsTargetCurrentUser(self)) {
+    if (IsCurrentUser(self)) {
         NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefNickname];
         if (fake && fake.length > 0) return fake;
     }
@@ -198,7 +216,7 @@ static BOOL IsTargetCurrentUser(id userModel) {
 }
 
 - (NSString *)uniqueID {
-    if (IsTargetCurrentUser(self)) {
+    if (IsCurrentUser(self)) {
         NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefUsername];
         if (fake && fake.length > 0) return fake;
     }
@@ -206,7 +224,7 @@ static BOOL IsTargetCurrentUser(id userModel) {
 }
 
 - (NSString *)shortID {
-    if (IsTargetCurrentUser(self)) {
+    if (IsCurrentUser(self)) {
         NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefUsername];
         if (fake && fake.length > 0) return fake;
     }
