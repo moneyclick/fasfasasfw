@@ -1,0 +1,9 @@
+﻿Package: com.sa1zy.tiktokmod
+Name: Sa1zy TikTok Visual Mod
+Depends: mobilesubstrate
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Visual profile customizer for TikTok (Verified Badge, Followers, Likes, Nickname, Username)
+Maintainer: Den
+Author: Sa1zy & Den
+Section: Tweaks
