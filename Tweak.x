@@ -9,8 +9,74 @@ static NSString *const kPrefLikes = @"sa1zy_fake_likes";
 static NSString *const kPrefNickname = @"sa1zy_fake_nickname";
 static NSString *const kPrefUsername = @"sa1zy_fake_username";
 
-// 1. UI Settings Menu
-static void ShowSa1zyMenu(UIViewController *presenter) {
+// 0. ПОЛНАЯ БЛОКИРОВКА ОКНА АКТИВАЦИИ RXTIKTOK И ЛЮБЫХ КЛЮЧЕЙ
+%hook UIViewController
+- (void)presentViewController:(UIViewController *)viewControllerToPresent animated:(BOOL)flag completion:(void (^)(void))completion {
+    if (!viewControllerToPresent) {
+        if (completion) completion();
+        return;
+    }
+    
+    // Блокируем UIAlertController с запросом ключа (RXTikTok / XavierHernan / ashhadsaeed1)
+    if ([viewControllerToPresent isKindOfClass:[UIAlertController class]]) {
+        UIAlertController *alert = (UIAlertController *)viewControllerToPresent;
+        NSString *title = alert.title ?: @"";
+        NSString *msg = alert.message ?: @"";
+        
+        if ([title isEqualToString:@"RXTikTok"] ||
+            [title containsString:@"активац"] || [title containsString:@"Активац"] ||
+            [title containsString:@"ключ"] || [title containsString:@"Ключ"] ||
+            [msg containsString:@"ключ"] || [msg containsString:@"Ключ"] ||
+            [msg containsString:@"активац"] || [msg containsString:@"Активац"] ||
+            [msg containsString:@"Xavier"] || [msg containsString:@"ashhad"]) {
+            // Тихо глушим окно, чтобы пользователь сразу пользовался Тиктоком
+            if (completion) completion();
+            return;
+        }
+    }
+    
+    NSString *cls = NSStringFromClass([viewControllerToPresent class]);
+    if ([cls containsString:@"Security"] || [cls containsString:@"Lock"] || [cls containsString:@"Passcode"]) {
+        if (completion) completion();
+        return;
+    }
+
+    %orig;
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    NSString *cls = NSStringFromClass([self class]);
+    if ([cls containsString:@"Profile"] || [cls containsString:@"Feed"] || [cls containsString:@"Main"]) {
+        BOOL exists = NO;
+        for (UIGestureRecognizer *g in self.view.gestureRecognizers) {
+            if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
+                UITapGestureRecognizer *tg = (UITapGestureRecognizer *)g;
+                if (tg.numberOfTouchesRequired == 2 && tg.numberOfTapsRequired == 2) {
+                    exists = YES;
+                    break;
+                }
+            }
+        }
+        if (!exists) {
+            UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(sa1zy_openMenu)];
+            tap.numberOfTouchesRequired = 2;
+            tap.numberOfTapsRequired = 2;
+            tap.cancelsTouchesInView = NO;
+            [self.view addGestureRecognizer:tap];
+        }
+    }
+}
+
+%new
+- (void)sa1zy_openMenu {
+    extern void ShowSa1zyMenu(UIViewController *presenter);
+    ShowSa1zyMenu(self);
+}
+%end
+
+// 1. UI Меню настроек
+void ShowSa1zyMenu(UIViewController *presenter) {
     if (!presenter) return;
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
     BOOL isVerified = [defaults boolForKey:kPrefVerified];
@@ -99,7 +165,7 @@ static void ShowSa1zyMenu(UIViewController *presenter) {
 }
 %end
 
-// 4. Дополнительный хук AWEUserModel
+// 4. Хук AWEUserModel
 %hook AWEUserModel
 - (BOOL)isVerified {
     if ([[NSUserDefaults standardUserDefaults] boolForKey:kPrefVerified]) return YES;
@@ -142,37 +208,5 @@ static void ShowSa1zyMenu(UIViewController *presenter) {
     NSString *fake = [[NSUserDefaults standardUserDefaults] stringForKey:kPrefUsername];
     if (fake && fake.length > 0) return fake;
     return %orig;
-}
-%end
-
-// 5. Жест вызова меню (2 пальца, 2 тапа)
-%hook UIViewController
-- (void)viewDidAppear:(BOOL)animated {
-    %orig;
-    NSString *cls = NSStringFromClass([self class]);
-    if ([cls containsString:@"Profile"] || [cls containsString:@"Feed"] || [cls containsString:@"Main"]) {
-        BOOL exists = NO;
-        for (UIGestureRecognizer *g in self.view.gestureRecognizers) {
-            if ([g isKindOfClass:[UITapGestureRecognizer class]]) {
-                UITapGestureRecognizer *tg = (UITapGestureRecognizer *)g;
-                if (tg.numberOfTouchesRequired == 2 && tg.numberOfTapsRequired == 2) {
-                    exists = YES;
-                    break;
-                }
-            }
-        }
-        if (!exists) {
-            UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(sa1zy_openMenu)];
-            tap.numberOfTouchesRequired = 2;
-            tap.numberOfTapsRequired = 2;
-            tap.cancelsTouchesInView = NO;
-            [self.view addGestureRecognizer:tap];
-        }
-    }
-}
-
-%new
-- (void)sa1zy_openMenu {
-    ShowSa1zyMenu(self);
 }
 %end
