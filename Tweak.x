@@ -152,11 +152,28 @@ static void ShowMenu(UIViewController *presenter) {
 @implementation Sa1zyGestureHandler
 + (void)handleTap:(UITapGestureRecognizer *)gesture {
     if (gesture.state == UIGestureRecognizerStateEnded) {
-        UIWindow *keyWindow = nil;
-        for (UIWindow *w in [UIApplication sharedApplication].windows) {
-            if (w.isKeyWindow) { keyWindow = w; break; }
+        UIViewController *root = nil;
+        if ([gesture.view isKindOfClass:[UIWindow class]]) {
+            root = [(UIWindow *)gesture.view rootViewController];
         }
-        UIViewController *root = keyWindow.rootViewController;
+        if (!root) {
+            for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                if ([scene isKindOfClass:[UIWindowScene class]]) {
+                    for (UIWindow *w in scene.windows) {
+                        if (w.isKeyWindow && w.rootViewController) {
+                            root = w.rootViewController;
+                            break;
+                        }
+                    }
+                }
+                if (root) break;
+            }
+        }
+        if (!root) {
+            for (UIWindow *w in [UIApplication sharedApplication].windows) {
+                if (w.isKeyWindow && w.rootViewController) { root = w.rootViewController; break; }
+            }
+        }
         while (root.presentedViewController) {
             root = root.presentedViewController;
         }
